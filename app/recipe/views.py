@@ -24,7 +24,22 @@ from core.models import (
 )
 from recipe import serializers
 
-
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='tags',
+                type=OpenApiTypes.STR,
+                description='Comma seperated list of tag IDs to filter',
+            ),
+            OpenApiParameter(
+                name='ingredients',
+                type=OpenApiTypes.STR,
+                description='Comma seperated list of ingredient IDs to filter',
+            )
+        ]
+    )
+)
 class RecipeViewSet(viewsets.ModelViewSet):
     """View for manage recipe APIs."""
     serializer_class = serializers.RecipeDetailSerializer
@@ -43,14 +58,14 @@ class RecipeViewSet(viewsets.ModelViewSet):
         queryset = self.queryset
         if tags:
             tag_ids = self._params_to_ints(tags)
-            self.queryset = self.queryset.filter(tags__id__in=tag_ids)
+            queryset = queryset.filter(tags__id__in=tag_ids)
         if ingedients:
             ingredient_ids = self._params_to_ints(ingedients)
-            self.queryset = self.queryset.filter(ingredients__id__in=ingredient_ids)
+            queryset = queryset.filter(ingredients__id__in=ingredient_ids)
 
         return queryset.filter(
             user=self.request.user
-        ).order_by('id').distinct()
+        ).order_by('-id').distinct()
 
     def get_serializer_class(self):
         """Return the serializer class for request."""
@@ -77,8 +92,18 @@ class RecipeViewSet(viewsets.ModelViewSet):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
-class BaseRecipeAttrVeiwSet(mixins.DestroyModelMixin,
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                'assinged_only',
+                OpenApiTypes.INT, enum=[0,1],
+                description='Filter by items that are assigned to recipes',
+            ),
+        ]
+    )
+)
+class BaseRecipeAttrViewSet(mixins.DestroyModelMixin,
                             mixins.UpdateModelMixin,
                             mixins.ListModelMixin,
                             viewsets.GenericViewSet):
@@ -88,16 +113,24 @@ class BaseRecipeAttrVeiwSet(mixins.DestroyModelMixin,
 
     def get_queryset(self):
         """Filter queryset to authenticated user."""
-        return self.queryset.filter(user=self.request.user).order_by('-name')
+        assigned_only = bool(
+            int(self.request.query_params.get('assigned_only', 0))
+        )
+        queryset = self.queryset
+        if assigned_only:
+            queryset = queryset.filter(recipe__isnull=False)
+        return queryset.filter(
+            user=self.request.user
+        ).order_by('-name').distinct()
 
 
-class TagViewSet(BaseRecipeAttrVeiwSet):
+class TagViewSet(BaseRecipeAttrViewSet):
     """Manage tags in the database."""
     serializer_class = serializers.TagSerializer
     queryset = Tag.objects.all()
 
 
-class IngredientViewSet(BaseRecipeAttrVeiwSet):
+class IngredientViewSet(BaseRecipeAttrViewSet):
     """Manage ingredients in the database."""
     serializer_class = serializers.IngredientSerializer
     queryset = Ingredient.objects.all()
